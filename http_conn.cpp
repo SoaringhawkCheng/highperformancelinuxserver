@@ -1,10 +1,9 @@
-
 #include <fcntl.h>//定义了很多宏和open,fcntl函数原型
 #include <string.h>//memset()
 #include <errno.h>//errno全局变量
 #include <stdlib.h>//字符串转换，atoi()
 #include <stdio.h>//printf()
-#include <stdarg.h>//可变参数函数，va_list()，va_start()，vsnprintf()
+#include <stdarg.h>//可变参数函数，va_list()，va_start()，vsnprintf(),va_end()
 #include <uio.h>//readv(),writev(),iovec结构体
 #include <sys/epoll.h>//epoll_creat(),epoll_wait(),epoll_ctl(
 #include <sys/socket.h>//提供socket函数及数据结构
@@ -372,17 +371,78 @@ bool http_conn::process_write(HTTP_CODE ret){
             {
                 add_status_line(200,ok_200_title);
                 if(!m_file_stat.st_size!=0){
-                    add_headers
+                    add_headers(m_file_stat.st_size);
+                    m_iv[0].iov_base=m_write_buf;
+                    m_iv[0].iov_len=m_write_idx;
+                    m_iv[1].iov_base=m_file_address;
+                    m_iv[1].iov_len=m_file_stat.st_size;
+                    m_iv_count=2;
+                    return true;
+                }
+                else{
+                    const char *ok_string="<html><body></body></html>";
+                    add_headers(strlen(ok_string));
+                    if(!add_content(ok_string)){
+                        return false;
+                    }
                 }
             }
+        default:{
+                    return false;
+                }
     }
+    m_iv[0].iov_base=m_write_buf;
+    m_iv[0],iov_len=m_write_idx;
+    m_iv_count=1;
+    return true;
 }
 
+/* 往缓冲中写入待发送的数据 */
 bool http_conn::add_response(const char *format,...){
     if(m_write_idx>=WRITE_BUFFER_SIZE){
         return false;
     }
+    va_list arg_list;
+    va_start(arg_list,format);
+    int len=vsnprintf(m_write_buf+m_write_idx,WRITE_BUFFER_SIZE-1-m_write_idx,format,arg_list);
+    if(len>=(WRITE_BUFFER_SIZE-1-m_write_idx)){
+        return false;
+    }
+    m_write_idx+=len;
+    va_end(arg_list);
+    return true;
+}
 
+/* 添加状态栏 */
+bool http_conn::add_status_line(int status,const char *title){
+    return add_response("%s %d %s\r\n","HTTP/1.1",status,title);
+}
+
+/* 添加首部 */
+bool http_conn::add_headers(int content_len){
+    add_content_length(content_len);
+    add_linger();
+    add_blank_line();
+}
+
+/* 添加内容长度字段 */
+bool http_conn::add_content_length(int content_len){
+    return add_response("Content-Length: %d\r\n",content_len);
+}
+
+/* 添加连接连接否要保持 */
+bool http_conn::add_linger(){
+    return add_response("Connection: %s\r\n",(m_linger==true)?"keep-alive":"close");
+}
+
+/* 添加空行 */
+bool http_conn::add_blank_line(){
+    return add_response("%s","\r\n");
+}
+
+/* 添加内容 */
+bool http_conn::add_content(const char *content){
+    return add_response("%s",content);
 }
 
 /* 对内存映射区执行munmap操作 */

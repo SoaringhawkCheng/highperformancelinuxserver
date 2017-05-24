@@ -1,16 +1,8 @@
-//
-//  http_conn.h
-//  adios
-//
-//  Created by 追寻梦之碎片 on 2017/5/22.
-//  Copyright © 2017年 追寻梦之碎片. All rights reserved.
-//
-
 #ifndef http_conn_h
 #define http_conn_h
 
 #include <sys/socket.h>//提供socket函数及数据结构
-#include <sys/types.h>//stat结构体
+#include <sys/stat.h>//stat结构体
 #include <sys/uio.h>//readv()，writev()，iovec结构体
 #include <netinet/in.h>//互联网地址族，定义数据结构sockaddr_in
 #include <arpa/inet.h>//主要定义类格式转换函数，比如IP地址转换函数，linger结构体
@@ -85,7 +77,7 @@ private:
     bool add_response(const char *format,...);
     bool add_content(const char *content);
     bool add_status_line(int status,const char *title);
-    bool add_headers(int content_lenght);
+    bool add_headers(int content_length);
     bool add_linger();
     bool add_blank_line();
 
