@@ -4,9 +4,13 @@
 #include <errno.h>//errno全局变量
 #include <stdlib.h>//字符串转换，atoi()
 #include <stdio.h>//printf()
+#include <stdarg.h>//可变参数函数，va_list()，va_start()，vsnprintf()
+#include <uio.h>//readv(),writev(),iovec结构体
 #include <sys/epoll.h>//epoll_creat(),epoll_wait(),epoll_ctl(
 #include <sys/socket.h>//提供socket函数及数据结构
 #include <sys/stat.h>//stat结构体
+#include <arpa/inet.h>//主要定义类格式转换函数，比如IP地址转换函数，linger结构体
+
 #include "http_conn.h"
 
 /* HTTP响应的状态信息 */
@@ -66,6 +70,7 @@ int http_conn::m_epollfd=-1;
  * 初始化和关闭客户连接
  * */
 
+/* 初始化客户连接  */
 void http_conn::init(int sockfd,const sockaddr_in &addr){
     m_sockfd=sockfd;
     m_address=addr;
@@ -78,6 +83,7 @@ void http_conn::init(int sockfd,const sockaddr_in &addr){
     init();
 }
 
+/* 初始化解析器状态  */
 void http_conn::init(){
     m_check_state=CHECK_STATE_REQUESTLINE;//初始状态，解析请求栏
     m_linger=false;
@@ -97,6 +103,7 @@ void http_conn::init(){
     memset(m_real_file,0,FILENAME_LEN);
 }
 
+/* 关闭客户连接 */
 void http_conn::close_conn(bool real_close){
     if(real_close&&(m_sockfd!=-1)){
         removefd(m_epollfd,m_sockfd);
@@ -105,6 +112,7 @@ void http_conn::close_conn(bool real_close){
     }
 }
 
+/* 读取报文 */
 bool http_conn::read(){
     if(m_read_idx>=READ_BUFFER_SIZE){
         return false;
@@ -322,10 +330,62 @@ http_conn::HTTP_CODE http_conn::do_request(){
     return FILE_REQUEST;
 }
 
-bool http_conn::write(){
-    int temp=0
+bool http_conn::process_write(HTTP_CODE ret){
+    switch(ret){
+        case INTERNAL_ERROR:
+            {
+                add_status_line(500,error_500_title);
+                add_headers(strlen(error_500_form));
+                if(!add_content(error_500_form)){
+                    return false;
+                }
+                break;
+            }
+        case BAD_REQUEST:
+            {
+                add_status_line(400,error_400_title);
+                add_headers(strlen(error_400_form));
+                if(!add_content(error_400_form)){
+                    return false;
+                }
+                break;
+            }
+        case NO_RESOURCE:
+            {
+                add_status_line(404,error_404_title);
+                add_headers(strlen(error_404_form));
+                if(!add_content(error_400_form)){
+                    return false;
+                }
+                break;
+            }
+        case FORBIDDEN_REQUEST:
+            {
+                add_status_line(403,error_403_form);
+                add_headers(strlen(error_403_form));
+                if(!add_content(error_403_form)){
+                    return false;
+                }
+                break;
+            }
+        case FILE_REQUEST:
+            {
+                add_status_line(200,ok_200_title);
+                if(!m_file_stat.st_size!=0){
+                    add_headers
+                }
+            }
+    }
 }
 
+bool http_conn::add_response(const char *format,...){
+    if(m_write_idx>=WRITE_BUFFER_SIZE){
+        return false;
+    }
+
+}
+
+/* 对内存映射区执行munmap操作 */
 void http_conn::unmap(){
     if(m_file_address){
         munmap(m_file_address,m_file_stat.st_size);
@@ -333,3 +393,40 @@ void http_conn::unmap(){
     }
 }
 
+bool http_conn::write(){
+    int temp=0;
+    int bytes_have_send=0;
+    int bytes_to_send=m_write_idx;
+    if(bytes_to_send==0){
+        modfd(m_epollfd,m_sockfd);//无需写数据，重置fd注册事件
+        init();//重置解析器状态
+        return true;
+    }
+    while(1){
+        temp=write(m_sockfd,m_iv,m_iv_count);
+        if(temp<=-1){
+            /* 如果TCP写缓冲没有空间，则等待下一轮EPOLLOUT事件 */
+            if(errno==EAGAIN){
+                modfd(m_epollfd,m_sockfd,EPOLLOUT);
+                return true;
+            }
+            unmap();
+            return false;
+        }
+        bytes_to_send-=temp;
+        bytes_have_send+=temp;
+        /* 发送HTTP响应成功，根据HTTP请求中的Connection字段决定是否立即关闭连接 */
+        if(bytes_to_send<=bytes_have_send){
+            unmap();
+            if(m_linger){
+                init();//重置解析器状态
+                modfd(epollfd,m_sockfd,EPOLLIN);
+                return true;//不关闭连接
+            }
+            else{
+                modfd=(m_epollfd,m_sockfd,EPOLLIN);
+                return false;//关闭连接
+            }
+        }
+    }
+}
