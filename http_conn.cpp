@@ -402,14 +402,15 @@ bool http_conn::add_response(const char *format,...){
     if(m_write_idx>=WRITE_BUFFER_SIZE){
         return false;
     }
-    va_list arg_list;
-    va_start(arg_list,format);
+    va_list arg_list;//声明一个指向参数列表的字符型指针变量
+    va_start(arg_list,format);//初始化变量
+    /* 打印可变参数列表 */
     int len=vsnprintf(m_write_buf+m_write_idx,WRITE_BUFFER_SIZE-1-m_write_idx,format,arg_list);
     if(len>=(WRITE_BUFFER_SIZE-1-m_write_idx)){
         return false;
     }
     m_write_idx+=len;
-    va_end(arg_list);
+    va_end(arg_list);//将用于存放可变参数的字符串的变量清空
     return true;
 }
 
@@ -453,6 +454,7 @@ void http_conn::unmap(){
     }
 }
 
+/* 写HTTP相应 */
 bool http_conn::write(){
     int temp=0;
     int bytes_have_send=0;
