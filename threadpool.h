@@ -1,0 +1,104 @@
+//
+//  threadpool.h
+//  adios
+//
+//  Created by 追寻梦之碎片 on 2017/5/22.
+//  Copyright © 2017年 追寻梦之碎片. All rights reserved.
+//
+
+#ifndef threadpool_h
+#define threadpool_h
+
+#include <list>
+#include <exception>
+#include <pthread.h>
+
+#include "locker.h"
+
+template<typename T>
+class threadpool{
+public:
+    /* thread_number线程池线程数量，max_requests是请求队列中最多允许的、等待处理的请求的数量 */
+    threadpool(int thread_number=8,int max_requests=10000);
+    ~threadpool();
+    bool append(T *request);
+private:
+    static void *worker(void *arg);//工作线程运行的函数，不断从工作队列中取出任务并执行之
+    void run();
+private:
+    int m_thread_number;//线程池最大线程数量
+    int m_max_requests;//请求队列中允许的最大请求数
+    pthread_t *m_threads;//线程池数组
+    std::list<T *> m_workqueue;//最大请求数
+    locker m_queuelocker;//保护请求队列的互斥锁
+    sem m_queuestat;//是否有任务需要处理
+    bool m_stop;//是否结束线程
+};
+
+template<typename T>
+threadpool<T>::threadpool(int thread_number,int maxrequests):
+m_thread_number(thread_number),m_max_requests(max_requests),m_stop(false),m_threads(NULL){
+    if((thread_number<=0)||(max_request<=0)){
+        throw std::exception();
+    }
+    m_threads=new pthread_t[m_pthread_number];
+    if(!m_threads){
+        throw std::exception();
+    }
+    for(int i=0;i<thread_number;++i){
+        printf("create the %dth thread\n",i);
+        if(pthread_create(m_threads+i,NULL,worker,this)!=0){//传入低i+1个线程的地址
+            delete []m_threads;
+            throw std::exception();
+        }
+        if(pthread_detach(m_thread[i])){//分离线程
+            delete []m_threads;
+            throw std::exception();
+        }
+    }
+}
+
+template<typename T>
+threadpool<T>::~threadpool(){
+    delete []m_threads;
+    m_stop=true;
+}
+
+template<typename T>
+bool threadpool<T>::append(T *request){
+    m_queuelocker.lock();//互斥锁保护请求队列
+    if(m_workqueue.size()>m_max_requests){
+        m_queuelocker.unlock();
+        return false;
+    }
+    m_workqueue.push_back(request);
+    m_queuelocker.unlock();
+    m_queuestat.post();//有任务需要处理，信号量加1
+    return true;
+}
+
+template<typename T>
+void *threadpool<T>::worker(void *arg) {
+    threadpool *pool=(threadpool *)arg;
+    pool->run();
+    return pool;
+}
+
+template<typename T>
+void threadpool<T>::run(){
+    while(!m_stop){
+        m_queuestat.wait();//等待待处理任务的注册，然后把信号量减1
+        m_queuelocker.lock();
+        if(m_workqueue.empty()){//如果请求队列为空，回到循环开始
+            m_queuelocker.unlock();
+            continue;
+        }
+        T *request=m_workqueue.front();
+        m_workqueue.pop_front();
+        m_queuelocker.unlock();
+        if(!request) continue;
+        request->process();//处理任务
+    }
+}
+
+#endif /* threadpool_h */
