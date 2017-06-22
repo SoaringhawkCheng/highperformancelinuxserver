@@ -28,12 +28,12 @@ private:
 };
 
 template<typename T>
-threadpool<T>::threadpool(int thread_number,int maxrequests):
+threadpool<T>::threadpool(int thread_number,int max_requests):
 m_thread_number(thread_number),m_max_requests(max_requests),m_stop(false),m_threads(NULL){
-    if((thread_number<=0)||(max_request<=0)){
+    if((thread_number<=0)||(max_requests<=0)){
         throw std::exception();
     }
-    m_threads=new pthread_t[m_pthread_number];
+    m_threads=new pthread_t[thread_number];
     if(!m_threads){
         throw std::exception();
     }
@@ -43,7 +43,7 @@ m_thread_number(thread_number),m_max_requests(max_requests),m_stop(false),m_thre
             delete []m_threads;
             throw std::exception();
         }
-        if(pthread_detach(m_thread[i])){//分离线程
+        if(pthread_detach(m_threads[i])){//分离线程
             delete []m_threads;
             throw std::exception();
         }
